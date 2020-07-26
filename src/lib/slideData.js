@@ -1,8 +1,23 @@
 import ky from 'ky';
+import Promise from 'bluebird';
 
 const FREE_TEXT_REGEX = /\bfree\s+text\b/i;
 
 class SlideData {
+  setTrelloAuth(trelloKey, trelloToken) {
+    this.trelloKey = trelloKey;
+    this.trelloToken = trelloToken;
+  }
+
+  assertToken() {
+    if (!this.trelloKey) {
+      throw Error('This requires a Trello API key');
+    }
+    if (!this.trelloToken) {
+      throw Error('This requires a Trello API token');
+    }
+  }
+
   checkIfActive(id, labels) {
     const active = labels.some(label => label.name.toLowerCase() === 'active');
     if (active) {
@@ -15,9 +30,8 @@ class SlideData {
   }
 
   getChoices(idChecklists, data) {
-    const checklist = data.checklists
-      .filter(({ id }) => idChecklists.includes(id))
-      .find(({ name }) => name.toLowerCase() === 'choices');
+    // use the first checklist on the card
+    const checklist = data.checklists.filter(({ id }) => idChecklists.includes(id))[0];
     if (!checklist) {
       return undefined;
     }
@@ -27,7 +41,14 @@ class SlideData {
   getImages(attachments, data) {
     return attachments
       .filter(({ mimeType }) => /^image\//i.test(mimeType))
-      .map(({ previews }) => previews[4]);
+      .map(({ previews, name }) => {
+        const image = previews[4];
+        return {
+          ...image,
+          ratio: image.width / image.height,
+          name,
+        };
+      });
   }
 
   getFreeTextResponseFieldId(data) {
@@ -77,14 +98,60 @@ class SlideData {
     this.setActiveSlide(undefined);
   }
 
+  loadBoardData() {
+    return ky.get(this.boardUrl).json();
+  }
+
   async load(boardUrl) {
     this.reset();
-    const json = await ky.get(boardUrl).json();
+    this.boardUrl = boardUrl;
+    const json = await this.loadBoardData();
 
     return {
       slideSets: this.extractSlides(json),
       activeSlideId: this.activeCardId,
     };
+  }
+
+  async persistActiveSlide(activeCardId = null) {
+    this.assertToken();
+    const key = this.trelloKey;
+    const token = this.trelloToken;
+
+    const boardData = await this.loadBoardData();
+
+    // POST /1/cards/{id}/idLabels?value=idLabel
+    // DELETE /1/cards/{id}/idLabels/{idLabel}
+    const activeCards = boardData.cards.map((card) => {
+      const activeLabel = card.labels.find(label => label.name.toLowerCase() === 'active');
+      return activeLabel ? [card.id, activeLabel.id] : null;
+    }).filter(Boolean);
+
+    try {
+      await Promise.map(activeCards, ([ cardId, labelId ]) =>
+        ky.delete(`https://api.trello.com/1/cards/${cardId}/idLabels/${labelId}`, {
+          searchParams: { key, token }
+        })
+      );
+    } catch (error) {
+      console.error(error);
+      // just squash errors, hopefully it'll self heal next time
+    }
+
+    if (activeCardId) {
+      const activeLabel = boardData.labels
+        .find(label => label.name.toLowerCase() === 'active');
+      if (!activeLabel) {
+        throw Error('There must be a label called ‘Active’ on the board');
+      }
+      await ky.post(`https://api.trello.com/1/cards/${activeCardId}/idLabels`, {
+        searchParams: {
+          value: activeLabel.id,
+          key,
+          token,
+        }
+      });
+    }
   }
 }
 

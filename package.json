@@ -1,7 +1,7 @@
 {
-  "name": "interactiv-lib",
+  "name": "nteract-lib",
   "version": "1.0.0",
-  "description": "Library for Interactiv clients",
+  "description": "Library for nteract clients",
   "author": "Matt Dolan <matt@dolan.me>",
   "main": "dist/index.js",
   "module": "dist/index.js",

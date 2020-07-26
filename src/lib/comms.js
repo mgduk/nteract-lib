@@ -3,28 +3,30 @@ import sleep from 'sleep-promise';
 
 class Comms {
   init({
-    clientId,
+    me,
     token,
     authUrl,
+    presenceData = {},
     broadcastHandler,
     responseHandler,
     presenceEnter,
     presenceUpdate,
     presenceLeave,
   }) {
-    this.reset();
-
-    this.clientId = clientId;
+    this.me = me;
+    this.defaultPresenceData = presenceData;
     this.broadcastHandler = broadcastHandler;
     this.responseHandler = responseHandler;
     this.presenceEnter = presenceEnter;
     this.presenceUpdate = presenceUpdate;
     this.presenceLeave = presenceLeave;
 
+    this.reset();
+
     this.ably = new Ably.Realtime({
       token,
       authUrl,
-      clientId,
+      clientId: me.id,
     });
 
     this.ably.connection.on(() =>
@@ -41,6 +43,7 @@ class Comms {
   reset() {
     this._presenceData = {
       type: 'user',
+      ...this.defaultPresenceData,
     };
     if (this.initialized) {
       this.stop();
@@ -51,6 +54,10 @@ class Comms {
     return new Promise((resolve, reject) =>
       (async () => {
         let waits = 0;
+        if (this.ably == null || this.ably.connection == null) {
+          reject('No Ably client or connection available');
+          return;
+        }
         while (true) {
           switch (this.ably.connection.state) {
             case 'disconnected':
@@ -81,25 +88,29 @@ class Comms {
 
   presenceData(updates = {}) {
     this._presenceData = { ...this._presenceData, ...updates };
-    return JSON.stringify(this._presenceData);
+    return this._presenceData;
   }
 
   async start(name, host = false) {
     await this.checkConnection();
 
-    this.broadcastChannel = this.ably.channels.get('broadcast');
+    this.broadcastChannel = this.ably.channels.get('broadcast:all');
+    this.privateChannel = this.ably.channels.get(`broadcast:${this.me.id}`);
     this.responseChannel = this.ably.channels.get('response');
 
     this.broadcastChannel.subscribe(this.broadcastHandler);
+    this.privateChannel.subscribe(this.broadcastHandler);
 
     if (host) {
       this.responseChannel.subscribe(this.responseHandler);
-      this.responseChannel.presence.subcribe('enter', this.presenceEnter);
-      this.responseChannel.presence.subcribe('update', this.presenceUpdate);
-      this.responseChannel.presence.subcribe('leave', this.presenceLeave);
+      this.responseChannel.presence.subscribe('enter', this.presenceEnter);
+      this.responseChannel.presence.subscribe('update', this.presenceUpdate);
+      this.responseChannel.presence.subscribe('leave', this.presenceLeave);
     }
 
     this.responseChannel.presence.enter(this.presenceData({ name }));
+
+    this.started = true;
   }
 
   updatePresenceData(data) {
@@ -109,13 +120,19 @@ class Comms {
   }
 
   stop() {
-    this.broadcastChannel.unsubscribe(this.broadcastHandler);
-    this.responseChannel.unsubscribe(this.responseHandler);
-    this.responseChannel.presence.unsubcribe('enter', this.presenceEnter);
-    this.responseChannel.presence.unsubcribe('update', this.presenceUpdate);
-    this.responseChannel.presence.unsubcribe('leave', this.presenceLeave);
-    this.responseChannel.presence.leave();
-    this.ably.connection.close();
+    if (this.started) {
+      this.broadcastChannel.unsubscribe(this.broadcastHandler);
+      this.privateChannel.unsubscribe(this.broadcastHandler);
+      this.responseChannel.unsubscribe(this.responseHandler);
+      this.responseChannel.presence.unsubscribe('enter', this.presenceEnter);
+      this.responseChannel.presence.unsubscribe('update', this.presenceUpdate);
+      this.responseChannel.presence.unsubscribe('leave', this.presenceLeave);
+      this.responseChannel.presence.leave();
+    }
+    if (this.ably && this.ably.connection) {
+      this.ably.connection.close();
+    }
+    this.started = false;
   }
 
   getUsers() {
@@ -124,7 +141,7 @@ class Comms {
         if (err != null) {
           return reject(err);
         }
-        resolve(users);
+        resolve(users.map(u => ({ ...u, userId: u.clientId })));
       });
     })
   }
@@ -135,6 +152,15 @@ class Comms {
 
   sendMessage(message, context) {
     this.responseChannel.publish('response', { message, context });
+  }
+
+  broadcast(command, context) {
+    this.broadcastChannel.publish(command, context);
+  }
+
+  sendPrivateMessage(clientId, command, context) {
+    const channel = this.ably.channels.get(`broadcast:${clientId}`);
+    channel.publish(command, context);
   }
 }
 

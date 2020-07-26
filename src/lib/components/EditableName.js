@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function EditableName({ name, logOut, changeName }) {
+function EditableName({ className, name, logOut, changeName }) {
   const [editedName, setEditedName] = useState(null);
   const [updating, setUpdating] = useState(false);
 
@@ -44,7 +44,7 @@ function EditableName({ name, logOut, changeName }) {
   });
 
   return (
-    <div className="EditableName">
+    <div className={`EditableName ${className}`}>
       <span>Hi </span>
       { updating
         ? <input ref={updateNameInput} onKeyDown={updateNameKeyDown} onBlur={updateNameBlur} onChange={updateNameChange} value={editedName} />
