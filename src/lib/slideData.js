@@ -82,7 +82,7 @@ class SlideData {
 
   getCardsForList(list, data) {
     list.slides = data.cards
-      .filter(card => card.idList === list.id)
+      .filter(card => !card.closed && card.idList === list.id)
       .map(card => this.getSlideDataFromCard(card, data));
     return list;
   }
