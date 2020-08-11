@@ -12,6 +12,7 @@ class Comms {
     presenceEnter,
     presenceUpdate,
     presenceLeave,
+    useDevComms,
   }) {
     this.me = me;
     this.defaultPresenceData = presenceData;
@@ -20,6 +21,8 @@ class Comms {
     this.presenceEnter = presenceEnter;
     this.presenceUpdate = presenceUpdate;
     this.presenceLeave = presenceLeave;
+
+    this.useDevComms = useDevComms;
 
     this.reset();
 
@@ -91,12 +94,16 @@ class Comms {
     return this._presenceData;
   }
 
+  channel(name) {
+    return this.useDevComms ? `dev-${name}` : name;
+  }
+
   async start(name, host = false) {
     await this.checkConnection();
 
-    this.broadcastChannel = this.ably.channels.get('broadcast:all');
-    this.privateChannel = this.ably.channels.get(`broadcast:${this.me.id}`);
-    this.responseChannel = this.ably.channels.get('response');
+    this.broadcastChannel = this.ably.channels.get(this.channel('broadcast:all'));
+    this.privateChannel = this.ably.channels.get(this.channel(`broadcast:${this.me.id}`));
+    this.responseChannel = this.ably.channels.get(this.channel('response'));
 
     this.broadcastChannel.subscribe(this.broadcastHandler);
     this.privateChannel.subscribe(this.broadcastHandler);
@@ -159,7 +166,7 @@ class Comms {
   }
 
   sendPrivateMessage(clientId, command, context) {
-    const channel = this.ably.channels.get(`broadcast:${clientId}`);
+    const channel = this.ably.channels.get(this.channel(`broadcast:${clientId}`));
     channel.publish(command, context);
   }
 }
