@@ -1,6 +1,6 @@
 {
   "name": "nteract-lib",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Library for nteract clients",
   "author": "Matt Dolan <matt@dolan.me>",
   "main": "dist/index.js",
