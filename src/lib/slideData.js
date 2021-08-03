@@ -2,8 +2,14 @@ import ky from 'ky';
 import Promise from 'bluebird';
 
 const FREE_TEXT_REGEX = /\bfree\s+text\b/i;
+const NUMBER_RESPONSE_REGEX = /\bnumber\s+response\b/i;
+const ANSWER_REGEX = /\banswer\b/i;
 
 class SlideData {
+  constructor() {
+    this.fieldIds = {};
+  }
+
   setTrelloAuth(trelloKey, trelloToken) {
     this.trelloKey = trelloKey;
     this.trelloToken = trelloToken;
@@ -51,21 +57,36 @@ class SlideData {
       });
   }
 
-  getFreeTextResponseFieldId(data) {
-    if (!this.freeTextResponseFieldId) {
+  getFieldId(name, fieldType, regex, data) {
+    if (!this.fieldIds[name]) {
       const field = data.customFields.find(({ name, type }) =>
-        type === 'checkbox' && FREE_TEXT_REGEX.test(name)
+        type === fieldType && regex.test(name)
       );
-      this.freeTextResponseFieldId = field ? field.id : null;
+      this.fieldIds[name] = field ? field.id : null;
     }
-    return this.freeTextResponseFieldId;
+    return this.fieldIds[name];
   }
 
   isFreeTextResponse(customFieldItems, data) {
-    const fieldId = this.getFreeTextResponseFieldId(data);
+    const fieldId = this.getFieldId('freeTextResponse', 'checkbox', FREE_TEXT_REGEX, data);
     return customFieldItems.some(o =>
       o.idCustomField === fieldId && o.value.checked === 'true'
     );
+  }
+
+  getAnswer(customFieldItems, data) {
+    const fieldId = this.getFieldId('answer', 'text', ANSWER_REGEX, data);
+    return customFieldItems.find(o => o.idCustomField === fieldId)?.value?.text;
+  }
+
+  getNumberResponseConstraints(customFieldItems, data) {
+    const fieldId = this.getFieldId('numberResponse', 'text', NUMBER_RESPONSE_REGEX, data);
+    const s = customFieldItems.find(o => o.idCustomField === fieldId)?.value?.text;
+    if (!s) {
+      return null;
+    }
+    const m = s.match(/^\s*(\d+)\s*[–\-]\s*(\d+)\s*$/);
+    return { min: parseInt(m[1], 10), max: parseInt(m[2], 10) };
   }
 
   getSlideDataFromCard(card, data) {
@@ -77,6 +98,8 @@ class SlideData {
       images: this.getImages(card.attachments, data),
       choices: this.getChoices(card.idChecklists, data),
       freeTextResponse: this.isFreeTextResponse(card.customFieldItems, data),
+      numberResponse: this.getNumberResponseConstraints(card.customFieldItems, data),
+      answer: this.getAnswer(card.customFieldItems, data),
     };
   }
 
